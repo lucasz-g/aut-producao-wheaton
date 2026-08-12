@@ -1,0 +1,35 @@
+# Ambientes virtuais
+venv/
+.venv/
+env/
+
+# Cache e arquivos gerados pelo Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Variáveis de ambiente e segredos
+.env
+.env.*
+!.env.example
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# Dados locais de produção
+analytics/data/*.xlsx
+analytics/data/*.xls
+
+# Ferramentas de desenvolvimento
+.vscode/
+.idea/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
