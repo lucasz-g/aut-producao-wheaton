@@ -70,15 +70,40 @@ with producao:
         )
 
 
-
 with notas:
     st.subheader("Anotações do dia")
     excel_notas = st.file_uploader("Upload do bloco de notas", type=["xlsx"], key="file_uploader_notas")
+
+
     if excel_notas:
         df_notas = pd.read_excel(excel_notas)
+        df_notas = df_notas.drop(columns=['Unnamed: 1'])
+
+        df_notas.columns = df_notas.iloc[1]
+        df_notas = df_notas.iloc[2:].reset_index(drop=True)
+        df_notas.columns.name = None
+
+        col1, col2 = st.columns(2, vertical_alignment="bottom")
+
+        with col1: 
+            st.multiselect(
+                    "Selecione a máquina para visualizar as anotações",
+                    options=df_notas["Maquina"].unique(),
+                    key="selectbox_maquina",
+            )
+
+        with col2:
+            st.button(
+                label="Resumir Anotações", 
+            )
+
         st.dataframe(df_notas, use_container_width=True)
 
 
 with resumo_geral:
-    st.subheader("Resumo Geral")
+    st.subheader("Relatório Geral")
     st.write("Faça o Download do Relatório de Desempenho Diário")
+
+    st.button(
+        label="Download do Relatório", 
+    )
