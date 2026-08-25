@@ -8,15 +8,16 @@ from utils.data_processor import (
     process_excel_producao,
 )
 from utils.openai_integration import get_openai_response
+from utils.pdf_processor import gerar_pdf_resumo_anotacoes
 
 st.set_page_config(
-    page_title="Resumo da Produção",
+    page_title="Relatório da Produção",
     layout="wide",
 )
 
-st.title("Resumo Diário da Produção")
+st.title("Relatório Diário da Produção")
 
-producao, notas, relatorio = st.tabs(["Produção", "Notas", "Relatório"])
+producao, notas = st.tabs(["Produção", "Notas"])
 
 with producao:
     st.subheader("Resumo de Desempenho Diário")
@@ -24,6 +25,8 @@ with producao:
     if excel_producao:
         # st.success("Arquivo carregado com sucesso!")
         desempenho, desempenho_hora_hora = process_excel_producao(excel_producao)
+        st.session_state["desempenho_producao"] = desempenho.copy()
+        st.session_state["desempenho_hora_hora"] = desempenho_hora_hora.copy()
 
         diario, hora_hora = st.tabs(["Diário", "Hora a Hora"])
 
@@ -39,17 +42,18 @@ with producao:
 
             if visualizacao == "Abaixo do objetivo":
                 desempenho_exibicao = desempenho_exibicao.loc[
-                    desempenho_exibicao["Empacotado %"]
-                    < desempenho_exibicao["Objetivo %"]
+                    (desempenho_exibicao["Emp - Rejeitado %"]
+                    < desempenho_exibicao["Objetivo %"])
                 ].copy()
             elif visualizacao == "No objetivo ou acima":
                 desempenho_exibicao = desempenho_exibicao.loc[
-                    desempenho_exibicao["Empacotado %"]
+                    desempenho_exibicao["Emp - Rejeitado %"]
                     >= desempenho_exibicao["Objetivo %"]
                 ].copy()
 
             abaixo_objetivo = (
-                desempenho_exibicao["Empacotado %"] < desempenho_exibicao["Objetivo %"]
+                desempenho_exibicao["Emp - Rejeitado %"]
+                < desempenho_exibicao["Objetivo %"]
             )
 
             estilo_vermelho = "color: #ff4b4b;"
@@ -62,7 +66,7 @@ with producao:
                         estilo_vermelho if abaixo else estilo_verde
                         for abaixo in abaixo_objetivo
                     ],
-                    subset=["Maquina", "Empacotado %"],
+                    subset=["Maquina", "Empacotado %", "Emp - Rejeitado %"],
                     axis=0,
                 )
                 .format({
@@ -122,6 +126,9 @@ with producao:
                 )
 
                 st.plotly_chart(figura, use_container_width=True)
+    else:
+        st.session_state.pop("desempenho_producao", None)
+        st.session_state.pop("desempenho_hora_hora", None)
 
 with notas:
     st.subheader("Anotações do dia")
@@ -155,8 +162,8 @@ with notas:
                 st.dataframe(df_notas, use_container_width=True)
         with resumo:
             st.subheader("Resumo das anotações")
-            resumo_notas = st.button(
-                label="Resumir Anotações",
+            resumir_anotacoes = st.button(
+                "Gerar resumo",
                 disabled=not maquinas_selecionadas,
             )
 
@@ -164,41 +171,56 @@ with notas:
                 st.info(
                     "Selecione pelo menos uma máquina para gerar o resumo das anotações."
                 )
-
-            if resumo_notas:
-                st.caption("Máquinas selecionadas:")
-
-                with st.container(horizontal=True):
-                    for maquina in maquinas_selecionadas:
-                        st.badge(maquina, color="gray")
-
+            else:
                 anotacoes_json = gerar_json_anotacoes_por_maquina(
                     df_notas,
                     maquinas_selecionadas,
                 )
 
-                try:
-                    with st.spinner("Resumindo anotações com IA...", show_time=True):
-                        resumo_ia = asyncio.run(
-                            get_openai_response(anotacoes_json)
-                        )
-                except Exception as erro:
-                    st.error(f"Não foi possível gerar o resumo: {erro}")
-                else:
-                    if resumo_ia:
-                        with st.container(border=True, width="content"):
-                            st.markdown(resumo_ia)
+                if resumir_anotacoes:
+                    try:
+                        with st.spinner(
+                            "Resumindo anotações com IA...",
+                            show_time=True,
+                        ):
+                            resumo_ia = asyncio.run(
+                                get_openai_response(anotacoes_json)
+                            )
+                    except Exception as erro:
+                        st.error(f"Não foi possível gerar o resumo: {erro}")
                     else:
-                        st.warning("A IA não retornou um resumo.")
+                        st.session_state["anotacoes_resumidas"] = anotacoes_json
+                        st.session_state["resumo_anotacoes"] = resumo_ia
+                        st.session_state["maquinas_resumidas"] = list(
+                            maquinas_selecionadas
+                        )
 
-with relatorio:
-    st.subheader("Relatório Geral")
-    with st.container(border=True, width="content"):
-        st.write("Faça o Download do Relatório de Desempenho Diário")
+                resumo_ia = st.session_state.get("resumo_anotacoes")
+                resumo_corresponde_as_anotacoes = (
+                    st.session_state.get("anotacoes_resumidas") == anotacoes_json
+                )
 
-        gerar_relatorio = st.button(
-            label="Download do Relatório",
-        )
+                if resumo_corresponde_as_anotacoes and resumo_ia:
+                    st.caption("Máquinas selecionadas:")
 
-    if gerar_relatorio:
-        st.info("A funcionalidade de download do relatório ainda não foi implementada.")
+                    with st.container(horizontal=True):
+                        for maquina in maquinas_selecionadas:
+                            st.badge(maquina, color="gray")
+
+                    with st.container(border=True, width="content"):
+                        st.markdown(resumo_ia)
+
+                    pdf_relatorio = gerar_pdf_resumo_anotacoes(resumo_ia)
+
+                    with st.bottom:
+                        baixar_relatorio_diario = st.download_button(
+                            "Baixar relatório diário",
+                            data=pdf_relatorio,
+                            file_name="relatorio_diario.pdf",
+                            mime="application/pdf",
+                            type="primary",
+                            width="stretch",
+                            on_click="ignore",
+                        )
+                elif resumo_corresponde_as_anotacoes:
+                    st.warning("A IA não retornou um resumo.")
