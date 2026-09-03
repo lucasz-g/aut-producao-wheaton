@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
+import plotly.io as pio
 
 
 # ========== Configuração das pastas de saída ==========
@@ -123,6 +124,33 @@ print(f"Identificador da execução: {PASTA_EXECUCAO.name}")
 print(f"Pasta da execução: {PASTA_EXECUCAO}")
 
 
+TAMANHO_LOTE_EXPORTACAO = 20
+FILA_EXPORTACAO = []
+
+
+def exportar_lote_png():
+    if not FILA_EXPORTACAO:
+        return
+
+    print(
+        f"Exportando lote com {len(FILA_EXPORTACAO)} gráfico(s)..."
+    )
+
+    pio.write_images(
+        fig=[item["fig"] for item in FILA_EXPORTACAO],
+        file=[item["caminho"] for item in FILA_EXPORTACAO],
+        format="png",
+        width=[item["largura"] for item in FILA_EXPORTACAO],
+        height=[item["altura"] for item in FILA_EXPORTACAO],
+        scale=pio.defaults.default_scale,
+    )
+
+    for item in FILA_EXPORTACAO:
+        print(f"Gráfico salvo: {item['caminho']}")
+
+    FILA_EXPORTACAO.clear()
+
+
 def salvar_figura_png(fig, nome_arquivo, op_vertech=None):
     if op_vertech is None:
         pasta_destino = PASTA_GRAFICOS_GERAIS
@@ -139,9 +167,33 @@ def salvar_figura_png(fig, nome_arquivo, op_vertech=None):
         pasta_destino.mkdir(parents=True, exist_ok=True)
 
     caminho_arquivo = pasta_destino / f"{nome_arquivo}.png"
-    fig.write_image(caminho_arquivo)
+    layout_figura = fig.to_dict().get("layout", {})
+    layout_template = (
+        layout_figura
+        .get("template", {})
+        .get("layout", {})
+    )
 
-    print(f"Gráfico salvo: {caminho_arquivo}")
+    largura = (
+        layout_figura.get("width")
+        or layout_template.get("width")
+        or pio.defaults.default_width
+    )
+    altura = (
+        layout_figura.get("height")
+        or layout_template.get("height")
+        or pio.defaults.default_height
+    )
+
+    FILA_EXPORTACAO.append({
+        "fig": fig,
+        "caminho": caminho_arquivo,
+        "largura": largura,
+        "altura": altura,
+    })
+
+    if len(FILA_EXPORTACAO) >= TAMANHO_LOTE_EXPORTACAO:
+        exportar_lote_png()
 
 
 
@@ -1029,6 +1081,7 @@ for op_vertech, dados_op in base_grafico.groupby(
     )
 
 
+exportar_lote_png()
 print("Execução concluída com sucesso.")
 
 
