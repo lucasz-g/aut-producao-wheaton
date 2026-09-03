@@ -1,4 +1,5 @@
 import json
+import re
 
 import pandas as pd
 import plotly.express as px
@@ -298,7 +299,8 @@ def aplicar_anotacoes_interpretadas(
     interpretacoes: list[dict],
 ) -> str:
     """
-    Substitui as anotações brutas do JSON pelas anotações interpretadas pela IA.
+    Substitui as anotações brutas do JSON pelas anotações interpretadas pela IA:
+    a linha do tempo em 'anotacoes' e o texto sem hora em 'observacoes'.
 
     Máquinas/prefixos que a IA não retornar mantêm a anotação bruta, para não
     perder informação silenciosamente.
@@ -308,21 +310,72 @@ def aplicar_anotacoes_interpretadas(
     for interpretacao in interpretacoes or []:
         maquina = str(interpretacao.get("maquina", "")).strip()
         prefixo = str(interpretacao.get("prefixo", "")).strip()
-        texto = str(interpretacao.get("anotacoes", "")).strip()
+        linha_do_tempo = _linha_do_tempo(interpretacao.get("anotacoes"))
+        observacoes = str(interpretacao.get("observacoes") or "").strip()
 
-        if not maquina or not texto:
+        if not maquina or not (linha_do_tempo or observacoes):
             continue
 
         dados_maquina = dados.setdefault(maquina, {"prefixos": {}})
 
         if prefixo:
-            dados_maquina.setdefault("prefixos", {}).setdefault(prefixo, {})[
-                "anotacoes"
-            ] = texto
+            destino = dados_maquina.setdefault("prefixos", {}).setdefault(
+                prefixo, {}
+            )
         else:
-            dados_maquina["anotacoes"] = texto
+            destino = dados_maquina
+
+        destino["anotacoes"] = linha_do_tempo
+        destino["observacoes"] = observacoes
 
     return json.dumps(dados, ensure_ascii=False, indent=2, default=str)
+
+
+def _linha_do_tempo(anotacoes) -> list[dict]:
+    """Normaliza a linha do tempo devolvida pela IA, descartando entradas vazias."""
+    if not isinstance(anotacoes, list):
+        return []
+
+    eventos = []
+
+    for evento in anotacoes:
+        if not isinstance(evento, dict):
+            continue
+
+        descricao = str(evento.get("descricao") or "").strip()
+
+        if not descricao:
+            continue
+
+        eventos.append(
+            {
+                "hora": _normalizar_hora(evento.get("hora")),
+                "descricao": descricao,
+            }
+        )
+
+    return eventos
+
+
+def _normalizar_hora(hora) -> str:
+    """Deixa a hora no formato HH:MM; devolve o valor original quando não reconhece."""
+    texto = str(hora or "").strip()
+
+    if not texto:
+        return ""
+
+    correspondencia = re.fullmatch(r"(\d{1,2})\s*[:hH.]?\s*(\d{2})?", texto)
+
+    if not correspondencia:
+        return texto
+
+    horas = int(correspondencia.group(1))
+    minutos = int(correspondencia.group(2) or 0)
+
+    if horas > 23 or minutos > 59:
+        return texto
+
+    return f"{horas:02d}:{minutos:02d}"
 
 
 def gerar_markdown_resumo(anotacoes_json: str) -> str:
@@ -334,16 +387,21 @@ def gerar_markdown_resumo(anotacoes_json: str) -> str:
         linhas.append(f"### Máquina {maquina}")
 
         anotacao_maquina = conteudo.get("anotacoes")
+        observacoes_maquina = conteudo.get("observacoes")
 
         for prefixo, campos in (conteudo.get("prefixos") or {}).items():
             linhas.append(f"**Prefixo {prefixo}** — {_linha_desempenho(campos)}")
 
             anotacao = campos.get("anotacoes", anotacao_maquina)
             linhas.append(_texto_anotacao(anotacao))
+            linhas.append(
+                _texto_observacoes(campos.get("observacoes", observacoes_maquina))
+            )
             linhas.append("")
 
         if not conteudo.get("prefixos"):
             linhas.append(_texto_anotacao(anotacao_maquina))
+            linhas.append(_texto_observacoes(observacoes_maquina))
             linhas.append("")
 
     return "\n".join(linhas).strip()
@@ -367,6 +425,35 @@ def _linha_desempenho(campos: dict) -> str:
 def _texto_anotacao(anotacao) -> str:
     if isinstance(anotacao, str):
         return anotacao
-    if isinstance(anotacao, list):
-        return "\n".join(f"- {registro}" for registro in anotacao)
+
+    if isinstance(anotacao, list) and anotacao:
+        return "\n".join(_linha_evento(registro) for registro in anotacao)
+
     return "_Sem anotações._"
+
+
+def _linha_evento(registro) -> str:
+    if not isinstance(registro, dict):
+        return f"- {registro}"
+
+    hora = _hora_exibicao(registro.get("hora"))
+    descricao = registro.get("descricao")
+
+    if descricao is None:
+        return f"- {registro}"
+
+    return f"- **{hora}** — {descricao}" if hora else f"- {descricao}"
+
+
+def _hora_exibicao(hora) -> str:
+    """Formata 'HH:MM' como '04h45', o formato usado no relatório."""
+    texto = str(hora or "").strip()
+    correspondencia = re.fullmatch(r"(\d{2}):(\d{2})", texto)
+
+    return f"{correspondencia.group(1)}h{correspondencia.group(2)}" if correspondencia else texto
+
+
+def _texto_observacoes(observacoes) -> str:
+    texto = str(observacoes or "").strip()
+
+    return f"\n_Observações:_ {texto}" if texto else ""
