@@ -21,6 +21,9 @@ analytics/data/*.xlsx
 analytics/data/*.xls
 /outputs/
 
+# Outputs contendo dados da producao
+outputs
+
 # Ferramentas de desenvolvimento
 .vscode/
 .idea/
