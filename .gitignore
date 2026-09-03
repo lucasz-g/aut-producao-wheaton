@@ -20,6 +20,9 @@ __pycache__/
 analytics/data/*.xlsx
 analytics/data/*.xls
 
+# Outputs contendo dados da producao
+outputs
+
 # Ferramentas de desenvolvimento
 .vscode/
 .idea/
