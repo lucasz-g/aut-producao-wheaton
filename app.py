@@ -9,8 +9,11 @@ from utils.data_processor import (
     gerar_json_anotacoes_por_maquina,
     gerar_json_desempenho,
     gerar_markdown_resumo,
+    get_maquinas_abaixo_objetivo,
     process_excel_producao,
+    separar_data_hora,
 )
+from utils.graficos import gerar_graficos_por_prefixo
 from utils.openai_integration import get_anotacoes_interpretadas
 from utils.pdf_processor import gerar_pdf_resumo_anotacoes
 
@@ -77,7 +80,7 @@ if iniciar_automacao:
             st.session_state.pop("json_interpretado", None)
             st.session_state.pop("resumo_anotacoes", None)
             st.session_state.pop("maquinas_resumidas", None)
-            st.session_state.pop("maquinas_relatorio", None)
+            st.session_state.pop("graficos_relatorio", None)
             st.session_state.pop("maquina_hora_hora", None)
             st.session_state.pop("prefixo_hora_hora", None)
 
@@ -203,122 +206,108 @@ if arquivos_processados:
                 df_notas["Maquina"] == maquina_selecionada
             ]
 
-            dados, resumo = st.tabs(["Dados", "Relatório"])
-
-            with dados:
-                st.dataframe(df_notas_filtrado, use_container_width=True)
-
-            with resumo:
-                st.subheader("Relatório Diário")
-
-                maquinas_disponiveis_relatorio = (
-                    desempenho.reset_index()["Maquina"]
-                    .dropna()
-                    .drop_duplicates()
-                    .tolist()
+    
+            st.dataframe(
+                separar_data_hora(df_notas_filtrado),
+                use_container_width=True,
+            )
+            st.divider()
+            maquinas_para_relatorio = get_maquinas_abaixo_objetivo(
+                desempenho
+            )
+            if not maquinas_para_relatorio:
+                st.success(
+                    "Nenhuma máquina ficou abaixo do objetivo diário."
                 )
-
-                with st.expander("Configurar relatório diário"):
-                    maquinas_para_relatorio = st.multiselect(
-                        "Selecione as máquinas para a geração do relatório",
-                        options=maquinas_disponiveis_relatorio,
-                        key="maquinas_relatorio",
-                        placeholder="Selecione uma ou mais máquinas",
-                    )
-
-                    gerar_relatorio = st.button(
-                        "Gerar relatório",
-                        type="primary",
-                        disabled=not maquinas_para_relatorio,
-                    )
-
-                if maquinas_para_relatorio:
-                    anotacoes_json = gerar_json_anotacoes_por_maquina(
-                        df_notas,
-                        maquinas_para_relatorio,
-                    )
-                    desempenho_json = gerar_json_desempenho(
-                        maquinas_para_relatorio,
-                        desempenho,
-                    )
-                    chave_resumo = f"{anotacoes_json}{desempenho_json}"
-
-                    if gerar_relatorio:
-                        try:
-                            with st.spinner(
-                                "Interpretando anotações com IA...",
-                                show_time=True,
-                            ):
-                                interpretacoes = asyncio.run(
-                                    get_anotacoes_interpretadas(anotacoes_json)
+                gerar_relatorio = False
+            else:
+                st.badge(
+                        f"Máquinas abaixo do objetivo: {', '.join(maquinas_para_relatorio)}",
+                        color="red",
+                ) 
+                gerar_relatorio = st.button(
+                    "Gerar relatório",
+                    type="primary",
+                    width="content"
+                )
+                st.caption(
+                    "O relatório inclui somente as máquinas abaixo do "
+                    "objetivo diário de desempenho."
+                )
+            if maquinas_para_relatorio:
+                anotacoes_json = gerar_json_anotacoes_por_maquina(
+                    df_notas,
+                    maquinas_para_relatorio,
+                )
+                desempenho_json = gerar_json_desempenho(
+                    maquinas_para_relatorio,
+                    desempenho,
+                )
+                chave_resumo = f"{anotacoes_json}{desempenho_json}"
+                if gerar_relatorio:
+                    try:
+                        with st.spinner(
+                            "Interpretando anotações com IA...",
+                            show_time=True,
+                        ):
+                            interpretacoes = asyncio.run(
+                                get_anotacoes_interpretadas(anotacoes_json)
+                            )
+                            json_interpretado = (
+                                aplicar_anotacoes_interpretadas(
+                                    desempenho_json,
+                                    interpretacoes,
                                 )
-                                json_interpretado = (
-                                    aplicar_anotacoes_interpretadas(
-                                        desempenho_json,
-                                        interpretacoes,
-                                    )
-                                )
-                        except Exception as erro:
-                            st.error(
-                                f"Não foi possível gerar o relatório: {erro}"
-                            )
-                        else:
-                            st.session_state["anotacoes_resumidas"] = chave_resumo
-                            st.session_state["json_interpretado"] = (
-                                json_interpretado
-                            )
-                            st.session_state["resumo_anotacoes"] = (
-                                gerar_markdown_resumo(json_interpretado)
-                            )
-                            st.session_state["maquinas_resumidas"] = (
-                                maquinas_para_relatorio.copy()
                             )
 
-                    resumo_ia = st.session_state.get("resumo_anotacoes")
-                    json_interpretado = st.session_state.get(
-                        "json_interpretado"
-                    )
-                    resumo_corresponde_as_anotacoes = (
-                        st.session_state.get("anotacoes_resumidas")
-                        == chave_resumo
-                    )
-
-                    if resumo_corresponde_as_anotacoes and resumo_ia:
-                        st.caption("Máquinas incluídas no relatório:")
-
-                        with st.container(horizontal=True):
-                            for maquina in maquinas_para_relatorio:
-                                st.badge(maquina, color="gray")
-
-                        pdf_relatorio = gerar_pdf_resumo_anotacoes(
+                        with st.spinner("Gerando gráficos das máquinas..."):
+                            graficos_relatorio = gerar_graficos_por_prefixo(
+                                desempenho_hora_hora,
+                                maquinas_para_relatorio,
+                            )
+                    except Exception as erro:
+                        st.error(
+                            f"Não foi possível gerar o relatório: {erro}"
+                        )
+                    else:
+                        st.session_state["anotacoes_resumidas"] = chave_resumo
+                        st.session_state["json_interpretado"] = (
                             json_interpretado
                         )
-
-                        with st.bottom:
-                            st.download_button(
-                                "Baixar relatório diário",
-                                data=pdf_relatorio,
-                                file_name="relatorio_diario.pdf",
-                                mime="application/pdf",
-                                type="primary",
-                                width="stretch",
-                                on_click="ignore",
-                            )
-                    elif resumo_corresponde_as_anotacoes:
-                        st.warning("A IA não retornou um resumo.")
-
-
-                    ### DEBUG
-                    # if resumo_corresponde_as_anotacoes and json_interpretado:
-                    #     with st.expander(
-                    #         "JSON com as anotações interpretadas pela IA"
-                    #     ):
-                    #         st.json(json_interpretado, expanded=False)
-                    # else:
-                    #     with st.expander(
-                    #         "Anotações que serão enviadas para a IA (JSON)"
-                    #     ):
-                    #         st.json(anotacoes_json, expanded=False)
+                        st.session_state["resumo_anotacoes"] = (
+                            gerar_markdown_resumo(json_interpretado)
+                        )
+                        st.session_state["maquinas_resumidas"] = (
+                            maquinas_para_relatorio.copy()
+                        )
+                        st.session_state["graficos_relatorio"] = (
+                            graficos_relatorio
+                        )
+                resumo_ia = st.session_state.get("resumo_anotacoes")
+                json_interpretado = st.session_state.get(
+                    "json_interpretado"
+                )
+                resumo_corresponde_as_anotacoes = (
+                    st.session_state.get("anotacoes_resumidas")
+                    == chave_resumo
+                )
+                if resumo_corresponde_as_anotacoes and resumo_ia:
+                    pdf_relatorio = gerar_pdf_resumo_anotacoes(
+                        json_interpretado,
+                        st.session_state.get("graficos_relatorio"),
+                    )
+                    with st.bottom:
+                        st.download_button(
+                            "Baixar relatório diário",
+                            data=pdf_relatorio,
+                            file_name="relatorio_diario.pdf",
+                            mime="application/pdf",
+                            type="primary",
+                            width="stretch",
+                            on_click="ignore",
+                        )
+                elif resumo_corresponde_as_anotacoes:
+                    st.warning("A IA não retornou um resumo.")
 
 elif not iniciar_automacao:
     st.info(
