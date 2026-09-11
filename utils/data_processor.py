@@ -4,6 +4,9 @@ import re
 import pandas as pd
 import plotly.express as px
 
+COR_LINHA_DESEMPENHO = "#4472c4"
+COR_LINHA_OBJETIVO = "#ff4b4b"
+
 
 def process_excel_producao(excel_file):
     df = pd.read_excel(excel_file)
@@ -16,16 +19,38 @@ def process_excel_producao(excel_file):
     return desempenho_empacotamento_diario, desempenho_hora_hora
 
 
-# def get_maquinas_abaixo_objetivo(desempenho: pd.DataFrame) -> list[str]:
-#     desempenho_exibicao = desempenho.reset_index()
+def get_maquinas_abaixo_objetivo(desempenho: pd.DataFrame) -> list[str]:
+    """Máquinas cujo empacotado menos rejeitado ficou abaixo do objetivo."""
+    desempenho_exibicao = desempenho.reset_index()
 
-#     maquinas = desempenho_exibicao.loc[
-#         desempenho_exibicao["Emp - Rejeitado %"]
-#         < desempenho_exibicao["Objetivo %"],
-#         "Maquina",
-#     ]
+    maquinas = desempenho_exibicao.loc[
+        desempenho_exibicao["Emp - Rejeitado %"]
+        < desempenho_exibicao["Objetivo %"],
+        "Maquina",
+    ]
 
-#     return maquinas.dropna().drop_duplicates().tolist()
+    return maquinas.dropna().drop_duplicates().tolist()
+
+
+def separar_data_hora(df_notas: pd.DataFrame) -> pd.DataFrame:
+    """
+    Para exibição: quebra a coluna 'Hora' (datetime) em 'Data' no formato
+    brasileiro e 'Hora' apenas com o horário, mantendo a posição original.
+    """
+    if "Hora" not in df_notas.columns:
+        return df_notas
+
+    notas = df_notas.copy()
+    data_hora = pd.to_datetime(notas["Hora"], errors="coerce")
+
+    notas["Hora"] = data_hora.dt.strftime("%H:%M:%S")
+    notas.insert(
+        notas.columns.get_loc("Hora"),
+        "Data",
+        data_hora.dt.strftime("%d/%m/%Y"),
+    )
+
+    return notas
 
 
 def adjust_columns(df: pd.DataFrame):
@@ -184,6 +209,7 @@ def gerar_grafico_desempenho_hora_hora(
         markers=True,
         title=f"Desempenho Hora a Hora — Máquina {maquina}",
         category_orders={"Hora": ordem_horas},
+        color_discrete_sequence=[COR_LINHA_DESEMPENHO],
         labels={
             "Hora": "Hora",
             "Empacotado %": "Percentual empacotado",
@@ -201,7 +227,7 @@ def gerar_grafico_desempenho_hora_hora(
         y=dados_grafico["Objetivo %"],
         mode="lines",
         name="Objetivo",
-        line={"color": "#ff4b4b", "dash": "dash", "width": 2},
+        line={"color": COR_LINHA_OBJETIVO, "dash": "dash", "width": 2},
         hovertemplate="Hora=%{x}<br>Objetivo=%{y:.2%}<extra></extra>",
     )
 
