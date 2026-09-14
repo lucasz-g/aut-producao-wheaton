@@ -17,8 +17,8 @@ __pycache__/
 .ipynb_checkpoints/
 
 # Dados locais de produção
-analytics/data/*.xlsx
-analytics/data/*.xls
+/analytics/data/**/*.xlsx
+/analytics/data/**/*.xls
 /outputs/
 
 # Outputs contendo dados da producao

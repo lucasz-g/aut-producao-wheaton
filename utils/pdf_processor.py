@@ -9,8 +9,10 @@ from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
+from reportlab.lib.utils import ImageReader
 from reportlab.platypus import (
     HRFlowable,
+    Image,
     KeepTogether,
     PageBreak,
     Paragraph,
@@ -27,6 +29,8 @@ COR_SECUNDARIA = colors.HexColor("#4472c4")
 COR_CABECALHO_TABELA = colors.HexColor("#e7eaf3")
 COR_HORA_TABELA = colors.HexColor("#f4f6fb")
 COR_BORDA_TABELA = colors.HexColor("#b7c0d6")
+
+ALTURA_MAXIMA_GRAFICO = 8.5 * cm
 
 METRICAS = [
     ("Objetivo %", "Objetivo"),
@@ -286,6 +290,25 @@ def _tabela_linha_do_tempo(
     return tabela
 
 
+def _blocos_grafico(imagem, estilos: dict, largura: float) -> list:
+    """Gráfico hora a hora do prefixo, escalado para a largura do documento."""
+    if not imagem:
+        return []
+
+    largura_original, altura_original = ImageReader(BytesIO(imagem)).getSize()
+    altura = largura * altura_original / largura_original
+
+    if altura > ALTURA_MAXIMA_GRAFICO:
+        largura = largura * ALTURA_MAXIMA_GRAFICO / altura
+        altura = ALTURA_MAXIMA_GRAFICO
+
+    return [
+        Paragraph("Desempenho hora a hora", estilos["rotulo"]),
+        Image(BytesIO(imagem), width=largura, height=altura, hAlign="CENTER"),
+        Spacer(1, 0.15 * cm),
+    ]
+
+
 def _blocos_anotacao(
     anotacao,
     observacoes,
@@ -325,6 +348,7 @@ def _blocos_prefixo(
     observacoes_maquina,
     estilos: dict,
     largura: float,
+    grafico: bytes | None = None,
 ) -> list:
     campos = campos if isinstance(campos, dict) else {}
     anotacao = campos.get("anotacoes", anotacao_maquina)
@@ -333,17 +357,29 @@ def _blocos_prefixo(
     cabecalho = [
         Paragraph(f"Prefixo {_texto_seguro(prefixo)}", estilos["prefixo"]),
         _tabela_desempenho(campos, estilos, largura),
-        Paragraph("Linha do tempo do turno", estilos["rotulo"]),
     ]
 
     return [
         KeepTogether(cabecalho),
+        KeepTogether(
+            [
+                *_blocos_grafico(grafico, estilos, largura),
+                Paragraph("Linha do tempo do turno", estilos["rotulo"]),
+            ]
+        ),
         *_blocos_anotacao(anotacao, observacoes, estilos, largura),
     ]
 
 
-def _blocos_maquina(maquina: str, conteudo, estilos: dict, largura: float) -> list:
+def _blocos_maquina(
+    maquina: str,
+    conteudo,
+    estilos: dict,
+    largura: float,
+    graficos_maquina: dict | None = None,
+) -> list:
     conteudo = conteudo if isinstance(conteudo, dict) else {}
+    graficos_maquina = graficos_maquina or {}
     anotacao_maquina = conteudo.get("anotacoes")
     observacoes_maquina = conteudo.get("observacoes")
     prefixos = conteudo.get("prefixos") or {}
@@ -372,6 +408,7 @@ def _blocos_maquina(maquina: str, conteudo, estilos: dict, largura: float) -> li
                     observacoes_maquina,
                     estilos,
                     largura,
+                    graficos_maquina.get(str(prefixo)),
                 )
             )
     else:
@@ -385,14 +422,28 @@ def _blocos_maquina(maquina: str, conteudo, estilos: dict, largura: float) -> li
     return blocos
 
 
-def _conteudo_estruturado(dados: dict, estilos: dict, largura: float) -> list:
+def _conteudo_estruturado(
+    dados: dict,
+    estilos: dict,
+    largura: float,
+    graficos: dict | None = None,
+) -> list:
+    graficos = graficos or {}
     conteudo = []
 
     for indice, (maquina, dados_maquina) in enumerate(dados.items()):
         if indice:
             conteudo.append(PageBreak())
 
-        conteudo.extend(_blocos_maquina(maquina, dados_maquina, estilos, largura))
+        conteudo.extend(
+            _blocos_maquina(
+                maquina,
+                dados_maquina,
+                estilos,
+                largura,
+                graficos.get(str(maquina)),
+            )
+        )
 
     return conteudo
 
@@ -435,7 +486,10 @@ def _desenhar_rodape(canvas, documento) -> None:
     canvas.restoreState()
 
 
-def gerar_pdf_resumo_anotacoes(resumo_anotacoes: str | dict) -> bytes:
+def gerar_pdf_resumo_anotacoes(
+    resumo_anotacoes: str | dict,
+    graficos: dict[str, dict[str, bytes]] | None = None,
+) -> bytes:
     """
     Gera o PDF do relatório diário a partir do JSON com as anotações
     interpretadas pela IA (string JSON ou dict já desserializado).
@@ -447,9 +501,15 @@ def gerar_pdf_resumo_anotacoes(resumo_anotacoes: str | dict) -> bytes:
             "observacoes": "..."}}}}
 
     Cada máquina começa em uma nova página, com o título "Máquina {número}" e,
-    por prefixo, uma tabela de desempenho, a linha do tempo do turno (hora x
-    ocorrência) e as observações sem hora identificada. Se o conteúdo recebido
-    não for um JSON, ele é renderizado como texto/markdown simples.
+    por prefixo, uma tabela de desempenho, o gráfico hora a hora, a linha do
+    tempo do turno (hora x ocorrência) e as observações sem hora identificada.
+    Se o conteúdo recebido não for um JSON, ele é renderizado como
+    texto/markdown simples.
+
+    Os gráficos são opcionais e vêm como PNG em memória, na mesma estrutura de
+    chaves do resumo: {maquina: {prefixo: bytes}} — ver
+    utils.graficos.gerar_graficos_por_prefixo. Prefixos sem gráfico são
+    renderizados sem imagem.
     """
     if isinstance(resumo_anotacoes, dict):
         dados = resumo_anotacoes
@@ -486,7 +546,9 @@ def gerar_pdf_resumo_anotacoes(resumo_anotacoes: str | dict) -> bytes:
     ]
 
     if isinstance(dados, dict):
-        conteudo.extend(_conteudo_estruturado(dados, estilos, documento.width))
+        conteudo.extend(
+            _conteudo_estruturado(dados, estilos, documento.width, graficos)
+        )
     else:
         conteudo.extend(_conteudo_texto(str(resumo_anotacoes), estilos))
 

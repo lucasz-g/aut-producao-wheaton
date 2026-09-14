@@ -4,6 +4,19 @@ import re
 import pandas as pd
 import plotly.express as px
 
+COR_LINHA_DESEMPENHO = "#4472c4"
+COR_LINHA_OBJETIVO = "#ff4b4b"
+
+# O dia na Wheaton começa às 06:00 e termina às 05:59 do dia seguinte.
+HORA_INICIO_DIA_WHEATON = 6
+
+# A coluna "Hora Hora Wht (6to6)" marca o fim do bloco de uma hora, então o
+# primeiro bloco do dia (06:00 às 07:00) vem rotulado como 7.
+PRIMEIRA_HORA_HORA_WHEATON = 7
+
+# Coluna auxiliar de ordenação, sempre removida antes de devolver os dados.
+_COLUNA_ORDEM_WHEATON = "_ordem_dia_wheaton"
+
 
 def process_excel_producao(excel_file):
     df = pd.read_excel(excel_file)
@@ -16,16 +29,116 @@ def process_excel_producao(excel_file):
     return desempenho_empacotamento_diario, desempenho_hora_hora
 
 
-# def get_maquinas_abaixo_objetivo(desempenho: pd.DataFrame) -> list[str]:
-#     desempenho_exibicao = desempenho.reset_index()
+def get_maquinas_abaixo_objetivo(desempenho: pd.DataFrame) -> list[str]:
+    """Máquinas cujo empacotado menos rejeitado ficou abaixo do objetivo."""
+    desempenho_exibicao = desempenho.reset_index()
 
-#     maquinas = desempenho_exibicao.loc[
-#         desempenho_exibicao["Emp - Rejeitado %"]
-#         < desempenho_exibicao["Objetivo %"],
-#         "Maquina",
-#     ]
+    maquinas = desempenho_exibicao.loc[
+        desempenho_exibicao["Emp - Rejeitado %"]
+        < desempenho_exibicao["Objetivo %"],
+        "Maquina",
+    ]
 
-#     return maquinas.dropna().drop_duplicates().tolist()
+    return maquinas.dropna().drop_duplicates().tolist()
+
+
+def separar_data_hora(df_notas: pd.DataFrame) -> pd.DataFrame:
+    """
+    Para exibição: quebra a coluna 'Hora' (datetime) em 'Data' no formato
+    brasileiro e 'Hora' apenas com o horário, mantendo a posição original.
+    """
+    if "Hora" not in df_notas.columns:
+        return df_notas
+
+    notas = df_notas.copy()
+    data_hora = pd.to_datetime(notas["Hora"], errors="coerce")
+
+    notas["Hora"] = data_hora.dt.strftime("%H:%M:%S")
+    notas.insert(
+        notas.columns.get_loc("Hora"),
+        "Data",
+        data_hora.dt.strftime("%d/%m/%Y"),
+    )
+
+    return notas
+
+
+def ordenar_notas_por_dia_wheaton(df_notas: pd.DataFrame) -> pd.DataFrame:
+    """
+    Ordena as anotações pelo dia Wheaton, das 06:00 às 05:59 do dia seguinte.
+
+    As notas da madrugada (00:00 às 05:59) pertencem ao fim do dia, e não ao
+    começo — no bloco de notas elas vêm com a mesma data das notas da manhã,
+    então ordenar pela data/hora bruta jogaria a madrugada para o início.
+    """
+    if "Hora" not in df_notas.columns:
+        return df_notas
+
+    data_hora = pd.to_datetime(df_notas["Hora"], errors="coerce")
+
+    ordem = (
+        ((data_hora.dt.hour - HORA_INICIO_DIA_WHEATON) % 24) * 3600
+        + data_hora.dt.minute * 60
+        + data_hora.dt.second
+    )
+
+    return (
+        df_notas.assign(**{_COLUNA_ORDEM_WHEATON: ordem})
+        .sort_values(_COLUNA_ORDEM_WHEATON, kind="stable", na_position="last")
+        .drop(columns=_COLUNA_ORDEM_WHEATON)
+        .reset_index(drop=True)
+    )
+
+
+def ordenar_prefixos_por_troca(
+    desempenho_hora_hora: pd.DataFrame | None,
+    maquina,
+    prefixos: list | None = None,
+) -> list[str]:
+    """
+    Prefixos de uma máquina na ordem em que rodaram no dia Wheaton.
+
+    Quando houve troca de máquina (setup), o prefixo que saiu rodou nas
+    primeiras horas do dia e por isso vem antes do que entrou. Prefixos sem
+    dados hora a hora ficam no fim, em ordem alfabética.
+    """
+    primeira_hora = _primeira_hora_por_prefixo(desempenho_hora_hora, maquina)
+
+    if prefixos is None:
+        prefixos = list(primeira_hora)
+
+    nomes = list(dict.fromkeys(str(prefixo) for prefixo in prefixos))
+
+    return sorted(nomes, key=lambda nome: (primeira_hora.get(nome, 24), nome))
+
+
+def _primeira_hora_por_prefixo(
+    desempenho_hora_hora: pd.DataFrame | None,
+    maquina,
+) -> dict[str, int]:
+    """Posição da primeira hora Wheaton em que cada prefixo da máquina rodou."""
+    if desempenho_hora_hora is None or desempenho_hora_hora.empty:
+        return {}
+
+    linhas = desempenho_hora_hora.loc[
+        desempenho_hora_hora["Maquina"].astype("string") == str(maquina)
+    ].copy()
+
+    if linhas.empty:
+        return {}
+
+    horas = pd.to_numeric(linhas["Hora Hora Wht (6to6)"], errors="coerce")
+
+    linhas["Prefixo"] = linhas["Prefixo"].astype("string")
+    linhas[_COLUNA_ORDEM_WHEATON] = (horas - PRIMEIRA_HORA_HORA_WHEATON) % 24
+    linhas = linhas.dropna(subset=["Prefixo", _COLUNA_ORDEM_WHEATON])
+
+    return {
+        str(prefixo): int(ordem)
+        for prefixo, ordem in linhas.groupby("Prefixo")[_COLUNA_ORDEM_WHEATON]
+        .min()
+        .items()
+    }
 
 
 def adjust_columns(df: pd.DataFrame):
@@ -125,22 +238,29 @@ def gerar_json_anotacoes_por_maquina(
     """
     JSON somente com as anotações das máquinas selecionadas — é o que é enviado
     para a IA. Quando as notas têm a coluna 'Prefixo', agrupa por prefixo.
+
+    As anotações vão ordenadas pelo dia Wheaton (06:00 às 05:59) e, por
+    consequência, os prefixos aparecem na ordem em que rodaram na máquina.
     """
     if "Maquina" not in df_notas.columns:
         raise ValueError("A coluna 'Maquina' não foi encontrada nas anotações.")
 
     notas_tem_prefixo = "Prefixo" in df_notas.columns
     maquinas_sem_repeticao = list(dict.fromkeys(maquinas_selecionadas))
+    notas_ordenadas = ordenar_notas_por_dia_wheaton(df_notas)
     anotacoes_por_maquina = {}
 
     for maquina in maquinas_sem_repeticao:
-        anotacoes_maquina = df_notas.loc[df_notas["Maquina"] == maquina]
+        anotacoes_maquina = notas_ordenadas.loc[
+            notas_ordenadas["Maquina"] == maquina
+        ]
 
         if notas_tem_prefixo:
             anotacoes_por_maquina[str(maquina)] = {
                 str(prefixo): _registros_anotacoes(anotacoes_prefixo)
                 for prefixo, anotacoes_prefixo in anotacoes_maquina.groupby(
-                    anotacoes_maquina["Prefixo"].astype("string").fillna("Sem prefixo")
+                    anotacoes_maquina["Prefixo"].astype("string").fillna("Sem prefixo"),
+                    sort=False,
                 )
             }
         else:
@@ -184,6 +304,7 @@ def gerar_grafico_desempenho_hora_hora(
         markers=True,
         title=f"Desempenho Hora a Hora — Máquina {maquina}",
         category_orders={"Hora": ordem_horas},
+        color_discrete_sequence=[COR_LINHA_DESEMPENHO],
         labels={
             "Hora": "Hora",
             "Empacotado %": "Percentual empacotado",
@@ -201,7 +322,7 @@ def gerar_grafico_desempenho_hora_hora(
         y=dados_grafico["Objetivo %"],
         mode="lines",
         name="Objetivo",
-        line={"color": "#ff4b4b", "dash": "dash", "width": 2},
+        line={"color": COR_LINHA_OBJETIVO, "dash": "dash", "width": 2},
         hovertemplate="Hora=%{x}<br>Objetivo=%{y:.2%}<extra></extra>",
     )
 
@@ -217,26 +338,31 @@ def gerar_grafico_desempenho_hora_hora(
 def gerar_json_desempenho(
     maquinas_selecionadas: list[str],
     desempenho: pd.DataFrame | None = None,
+    desempenho_hora_hora: pd.DataFrame | None = None,
 ) -> str:
     """
     Monta o JSON base por máquina com o desempenho diário, uma entrada por prefixo.
     As anotações são adicionadas depois, já interpretadas pela IA, por
     aplicar_anotacoes_interpretadas.
+
+    Com o desempenho hora a hora, os prefixos saem na ordem em que rodaram no
+    dia: em troca de máquina, primeiro o prefixo que saiu e depois o que entrou.
     """
     maquinas_sem_repeticao = list(dict.fromkeys(maquinas_selecionadas))
     desempenho_por_maquina = _desempenho_por_maquina_prefixo(desempenho)
+    resultado = {}
 
-    resultado = {
-        str(maquina): {
-            "prefixos": {
-                prefixo: dict(campos)
-                for prefixo, campos in desempenho_por_maquina.get(
-                    str(maquina), {}
-                ).items()
-            }
+    for maquina in maquinas_sem_repeticao:
+        prefixos = desempenho_por_maquina.get(str(maquina), {})
+        ordem = ordenar_prefixos_por_troca(
+            desempenho_hora_hora,
+            maquina,
+            list(prefixos),
+        )
+
+        resultado[str(maquina)] = {
+            "prefixos": {prefixo: dict(prefixos[prefixo]) for prefixo in ordem}
         }
-        for maquina in maquinas_sem_repeticao
-    }
 
     return json.dumps(resultado, ensure_ascii=False, indent=2, default=str)
 
@@ -300,12 +426,17 @@ def aplicar_anotacoes_interpretadas(
 ) -> str:
     """
     Substitui as anotações brutas do JSON pelas anotações interpretadas pela IA:
-    a linha do tempo em 'anotacoes' e o texto sem hora em 'observacoes'.
+    a linha do tempo em 'anotacoes' e o resumo diário em 'observacoes'.
+
+    O resumo em 'observacoes' é da máquina inteira, então o mesmo texto é
+    repetido em todos os prefixos dela — inclusive nos que a IA não retornou,
+    para nenhum item do relatório ficar sem resumo.
 
     Máquinas/prefixos que a IA não retornar mantêm a anotação bruta, para não
     perder informação silenciosamente.
     """
     dados = json.loads(anotacoes_json)
+    resumos = _resumo_por_maquina(interpretacoes)
 
     for interpretacao in interpretacoes or []:
         maquina = str(interpretacao.get("maquina", "")).strip()
@@ -328,11 +459,52 @@ def aplicar_anotacoes_interpretadas(
         destino["anotacoes"] = linha_do_tempo
         destino["observacoes"] = observacoes
 
+    _aplicar_resumo_da_maquina(dados, resumos)
+
     return json.dumps(dados, ensure_ascii=False, indent=2, default=str)
 
 
+def _resumo_por_maquina(interpretacoes: list[dict] | None) -> dict[str, str]:
+    """
+    Resumo diário de cada máquina: o primeiro texto não vazio que a IA devolveu
+    para ela. A IA é instruída a repetir o mesmo resumo em todos os prefixos da
+    máquina; este passo garante um único texto mesmo quando ela varia.
+    """
+    resumos: dict[str, str] = {}
+
+    for interpretacao in interpretacoes or []:
+        maquina = str(interpretacao.get("maquina", "")).strip()
+        observacoes = str(interpretacao.get("observacoes") or "").strip()
+
+        if maquina and observacoes and not resumos.get(maquina):
+            resumos[maquina] = observacoes
+
+    return resumos
+
+
+def _aplicar_resumo_da_maquina(dados: dict, resumos: dict[str, str]) -> None:
+    """Repete o resumo diário da máquina em todos os itens dela no relatório."""
+    for maquina, conteudo in dados.items():
+        resumo = resumos.get(str(maquina), "")
+
+        if not resumo or not isinstance(conteudo, dict):
+            continue
+
+        prefixos = conteudo.get("prefixos")
+
+        if isinstance(prefixos, dict) and prefixos:
+            for campos in prefixos.values():
+                if isinstance(campos, dict):
+                    campos["observacoes"] = resumo
+        else:
+            conteudo["observacoes"] = resumo
+
+
 def _linha_do_tempo(anotacoes) -> list[dict]:
-    """Normaliza a linha do tempo devolvida pela IA, descartando entradas vazias."""
+    """
+    Normaliza a linha do tempo devolvida pela IA, descartando entradas vazias e
+    ordenando os eventos pelo dia Wheaton (06:00 às 05:59 do dia seguinte).
+    """
     if not isinstance(anotacoes, list):
         return []
 
@@ -354,7 +526,20 @@ def _linha_do_tempo(anotacoes) -> list[dict]:
             }
         )
 
-    return eventos
+    return sorted(eventos, key=_ordem_do_evento)
+
+
+def _ordem_do_evento(evento: dict) -> tuple[int, int, int]:
+    """Posição do evento no dia Wheaton; eventos sem hora reconhecida vão ao fim."""
+    correspondencia = re.fullmatch(r"(\d{2}):(\d{2})", evento.get("hora", ""))
+
+    if not correspondencia:
+        return (1, 0, 0)
+
+    hora = int(correspondencia.group(1))
+    minuto = int(correspondencia.group(2))
+
+    return (0, (hora - HORA_INICIO_DIA_WHEATON) % 24, minuto)
 
 
 def _normalizar_hora(hora) -> str:
