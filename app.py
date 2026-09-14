@@ -10,6 +10,8 @@ from utils.data_processor import (
     gerar_json_desempenho,
     gerar_markdown_resumo,
     get_maquinas_abaixo_objetivo,
+    ordenar_notas_por_dia_wheaton,
+    ordenar_prefixos_por_troca,
     process_excel_producao,
     separar_data_hora,
 )
@@ -171,14 +173,9 @@ if arquivos_processados:
                 key="maquina_hora_hora",
             )
 
-            prefixos_disponiveis = (
-                desempenho_hora_hora.loc[
-                    desempenho_hora_hora["Maquina"] == maquina_selecionada,
-                    "Prefixo",
-                ]
-                .dropna()
-                .unique()
-                .tolist()
+            prefixos_disponiveis = ordenar_prefixos_por_troca(
+                desempenho_hora_hora,
+                maquina_selecionada,
             )
 
             if len(prefixos_disponiveis) > 1:
@@ -208,7 +205,9 @@ if arquivos_processados:
 
     
             st.dataframe(
-                separar_data_hora(df_notas_filtrado),
+                separar_data_hora(
+                    ordenar_notas_por_dia_wheaton(df_notas_filtrado)
+                ),
                 use_container_width=True,
             )
             st.divider()
@@ -242,6 +241,7 @@ if arquivos_processados:
                 desempenho_json = gerar_json_desempenho(
                     maquinas_para_relatorio,
                     desempenho,
+                    desempenho_hora_hora,
                 )
                 chave_resumo = f"{anotacoes_json}{desempenho_json}"
                 if gerar_relatorio:

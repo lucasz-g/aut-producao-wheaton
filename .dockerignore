@@ -1,0 +1,40 @@
+# Ambientes virtuais e cache
+venv/
+.venv/
+env/
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Segredos: as variaveis vao pelas variaveis de ambiente da stack
+.env
+.env.*
+!.env.example
+
+# Dados de producao e saidas locais
+analytics/data/
+outputs/
+data/
+
+# Analises exploratorias, nao entram na imagem
+analytics/notebooks/
+scripts/
+
+# Controle de versao e ferramentas
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# Documentacao
+docs/
+README.md
+*.md
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose.yml
