@@ -17,6 +17,15 @@ PRIMEIRA_HORA_HORA_WHEATON = 7
 # Coluna auxiliar de ordenação, sempre removida antes de devolver os dados.
 _COLUNA_ORDEM_WHEATON = "_ordem_dia_wheaton"
 
+# Colunas usadas na análise de desvios; sem elas o arquivo enviado não serve.
+COLUNAS_DESVIOS = (
+    "OP Vertech",
+    "Desvio sigla",
+    "Localizacao",
+    "Qtd Amostra (corrigido)",
+    "Qtd Defeito",
+)
+
 
 def process_excel_producao(excel_file):
     df = pd.read_excel(excel_file)
@@ -27,6 +36,36 @@ def process_excel_producao(excel_file):
     desempenho_hora_hora = get_desempenho_hora_hora(df)
 
     return desempenho_empacotamento_diario, desempenho_hora_hora
+
+
+def process_excel_notas(excel_file) -> pd.DataFrame:
+    """Bloco de notas: o cabeçalho real está na segunda linha da planilha."""
+    df_notas = pd.read_excel(excel_file)
+    df_notas = df_notas.drop(columns=["Unnamed: 1"], errors="ignore")
+    df_notas.columns = df_notas.iloc[1]
+    df_notas = df_notas.iloc[2:].reset_index(drop=True)
+    df_notas.columns.name = None
+
+    return df_notas
+
+
+def process_excel_desvios(excel_file) -> pd.DataFrame:
+    """Desvios por máquina: o cabeçalho começa na terceira linha da planilha."""
+    df_desvios = pd.read_excel(excel_file, header=2)
+
+    colunas_faltando = [
+        coluna
+        for coluna in COLUNAS_DESVIOS
+        if coluna not in df_desvios.columns
+    ]
+
+    if colunas_faltando:
+        raise ValueError(
+            "Colunas não encontradas no excel de desvios: "
+            + ", ".join(colunas_faltando)
+        )
+
+    return df_desvios
 
 
 def get_maquinas_abaixo_objetivo(desempenho: pd.DataFrame) -> list[str]:
@@ -418,6 +457,31 @@ def _valor_json(valor):
     if isinstance(valor, float):
         return round(valor, 2)
     return valor
+
+
+def ops_do_relatorio(relatorio_json: str | dict) -> list[str]:
+    """
+    OPs presentes no JSON do relatório, sem repetição e na ordem em que
+    aparecem — é por essa chave que os gráficos de desvios são anexados ao PDF.
+    """
+    dados = (
+        json.loads(relatorio_json)
+        if isinstance(relatorio_json, str)
+        else relatorio_json
+    )
+
+    ops = []
+
+    for conteudo in (dados or {}).values():
+        prefixos = (conteudo or {}).get("prefixos") or {}
+
+        for campos in prefixos.values():
+            op = (campos or {}).get("OP")
+
+            if op is not None and str(op).strip():
+                ops.append(str(op).strip())
+
+    return list(dict.fromkeys(ops))
 
 
 def aplicar_anotacoes_interpretadas(
