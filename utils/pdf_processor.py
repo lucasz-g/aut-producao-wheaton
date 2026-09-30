@@ -529,6 +529,7 @@ def gerar_pdf_resumo_anotacoes(
     resumo_anotacoes: str | dict,
     graficos: dict[str, dict[str, bytes]] | None = None,
     graficos_desvios: dict[str, bytes] | None = None,
+    data_producao: str = "",
 ) -> bytes:
     """
     Gera o PDF do relatório diário a partir do JSON com as anotações
@@ -553,6 +554,9 @@ def gerar_pdf_resumo_anotacoes(
 
     Os gráficos de desvios seguem a mesma ideia, chaveados pela OP do prefixo:
     {"198594": bytes} — ver utils.graficos.gerar_graficos_desvios_por_op.
+
+    A data de produção é o dia Wheaton da planilha e aparece no subtítulo, ao
+    lado da data de geração do arquivo.
     """
     if isinstance(resumo_anotacoes, dict):
         dados = resumo_anotacoes
@@ -580,12 +584,16 @@ def gerar_pdf_resumo_anotacoes(
 
     estilos = _construir_estilos()
 
+    gerado_em = f"Gerado em {datetime.now():%d/%m/%Y às %H:%M}"
+    subtitulo = (
+        f"Produção de {_texto_seguro(data_producao)} · {gerado_em}"
+        if str(data_producao).strip()
+        else gerado_em
+    )
+
     conteudo = [
         Paragraph(TITULO_RELATORIO, estilos["titulo"]),
-        Paragraph(
-            f"Gerado em {datetime.now():%d/%m/%Y às %H:%M}",
-            estilos["subtitulo"],
-        ),
+        Paragraph(subtitulo, estilos["subtitulo"]),
     ]
 
     if isinstance(dados, dict):

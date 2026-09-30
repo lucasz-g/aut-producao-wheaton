@@ -143,8 +143,8 @@ producao = carregar_arquivo(
     excel_producao,
     process_excel_producao,
 )
-desempenho, desempenho_hora_hora = (
-    producao if producao is not None else (None, None)
+desempenho, desempenho_hora_hora, data_producao = (
+    producao if producao is not None else (None, None, "")
 )
 
 df_notas = carregar_arquivo("dados_notas", excel_notas, process_excel_notas)
@@ -172,8 +172,19 @@ with desempenho_diario:
     else:
         desempenho_exibicao = desempenho.reset_index()
 
-        indicador_maquinas, indicador_abaixo, indicador_media = st.columns(3)
+        (
+            indicador_data,
+            indicador_maquinas,
+            indicador_abaixo,
+            indicador_media,
+        ) = st.columns(4)
 
+        indicador_data.metric(
+            "Data",
+            data_producao or "—",
+            border=True,
+            help="Dia Wheaton da planilha de produção (06h às 06h).",
+        )
         indicador_maquinas.metric(
             "Máquinas no dia",
             desempenho_exibicao["Maquina"].nunique(),
@@ -509,6 +520,7 @@ if pronto_para_relatorio:
             json_interpretado,
             st.session_state.get("graficos_relatorio"),
             st.session_state.get("graficos_desvios_relatorio"),
+            data_producao,
         )
         espaco_download.download_button(
             "Baixar PDF",
