@@ -23,10 +23,10 @@ COLUNA_DATA_PRODUCAO = "Data Wht (dia)"
 # Colunas usadas na análise de desvios; sem elas o arquivo enviado não serve.
 COLUNAS_DESVIOS = (
     "OP Vertech",
-    "Desvio sigla",
-    "Localizacao",
-    "Qtd Amostra (corrigido)",
-    "Qtd Defeito",
+    "Nome desvio",
+    "Localização",
+    "Qtd amostra (corrigido)",
+    "Qtd Desvios",
 )
 
 
