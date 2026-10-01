@@ -113,8 +113,8 @@ def gerar_grafico_comparativo_aq_af(
     # Padroniza as colunas de texto
     for coluna in [
         "OP Vertech",
-        "Desvio sigla",
-        "Localizacao",
+        "Nome desvio",
+        "Localização",
     ]:
         base_aq_af[coluna] = (
             base_aq_af[coluna]
@@ -122,15 +122,15 @@ def gerar_grafico_comparativo_aq_af(
             .str.strip()
         )
     
-    base_aq_af["Localizacao"] = (
-        base_aq_af["Localizacao"]
+    base_aq_af["Localização"] = (
+        base_aq_af["Localização"]
         .str.upper()
     )
     
     # Garante que as quantidades sejam numéricas
     for coluna in [
-        "Qtd Amostra (corrigido)",
-        "Qtd Defeito",
+        "Qtd amostra (corrigido)",
+        "Qtd Desvios",
     ]:
         base_aq_af[coluna] = pd.to_numeric(
             base_aq_af[coluna],
@@ -140,14 +140,14 @@ def gerar_grafico_comparativo_aq_af(
     # Mantém apenas AQ e AF
     base_aq_af = (
         base_aq_af[
-            base_aq_af["Localizacao"].isin(
+            base_aq_af["Localização"].isin(
                 ["AQ", "AF"]
             )
         ]
         .dropna(
             subset=[
                 "OP Vertech",
-                "Desvio sigla",
+                "Nome desvio",
             ]
         )
         .copy()
@@ -159,19 +159,19 @@ def gerar_grafico_comparativo_aq_af(
         .groupby(
             [
                 "OP Vertech",
-                "Desvio sigla",
-                "Localizacao",
+                "Nome desvio",
+                "Localização",
             ],
             as_index=False,
             observed=True,
         )
         .agg(
             Qtd_Amostra=(
-                "Qtd Amostra (corrigido)",
+                "Qtd amostra (corrigido)",
                 "sum",
             ),
             Qtd_Defeito=(
-                "Qtd Defeito",
+                "Qtd Desvios",
                 "sum",
             ),
         )
@@ -188,19 +188,19 @@ def gerar_grafico_comparativo_aq_af(
     # Seleciona o Top 5 de cada localização separadamente
     top5_aq_af = (
         resumo_aq_af
-        .query("Localizacao in ['AQ', 'AF']")
+        .query("Localização in ['AQ', 'AF']")
         .dropna(subset=["Percentual_Defeito"])
         .sort_values(
             [
                 "OP Vertech",
-                "Localizacao",
+                "Localização",
                 "Percentual_Defeito",
-                "Desvio sigla",
+                "Nome desvio",
             ],
             ascending=[True, True, False, True],
         )
         .groupby(
-            ["OP Vertech", "Localizacao"],
+            ["OP Vertech", "Localização"],
             sort=False,
             observed=True,
         )
@@ -213,7 +213,7 @@ def gerar_grafico_comparativo_aq_af(
         .groupby(
             "OP Vertech",
             observed=True,
-        )["Localizacao"]
+        )["Localização"]
         .nunique()
         .loc[lambda valores: valores.eq(2)]
         .index
@@ -233,7 +233,7 @@ def gerar_grafico_comparativo_aq_af(
     
         aq = (
             dados_op[
-                dados_op["Localizacao"].eq("AQ")
+                dados_op["Localização"].eq("AQ")
             ]
             .sort_values(
                 "Percentual_Defeito",
@@ -244,7 +244,7 @@ def gerar_grafico_comparativo_aq_af(
     
         af = (
             dados_op[
-                dados_op["Localizacao"].eq("AF")
+                dados_op["Localização"].eq("AF")
             ]
             .sort_values(
                 "Percentual_Defeito",
@@ -334,7 +334,7 @@ def gerar_grafico_comparativo_aq_af(
     
         # Eixo da AQ invertido: zero fica próximo ao centro
         fig.update_xaxes(
-            title_text="Percentual AQ",
+            title_text="Percentual de Desvios",
             tickformat=".1%",
             range=[limite_eixo, 0],
             row=1,
@@ -343,7 +343,7 @@ def gerar_grafico_comparativo_aq_af(
     
         # Eixo da AF: zero fica próximo ao centro
         fig.update_xaxes(
-            title_text="Percentual AF",
+            title_text="Percentual de Desvios",
             tickformat=".1%",
             range=[0, limite_eixo],
             row=1,
@@ -355,7 +355,7 @@ def gerar_grafico_comparativo_aq_af(
             title_text="Top 5 desvios da AQ",
             tickmode="array",
             tickvals=posicoes_aq,
-            ticktext=aq["Desvio sigla"],
+            ticktext=aq["Nome desvio"],
             range=[
                 quantidade_linhas - 0.5,
                 -0.5,
@@ -369,7 +369,7 @@ def gerar_grafico_comparativo_aq_af(
             title_text="Top 5 desvios da AF",
             tickmode="array",
             tickvals=posicoes_af,
-            ticktext=af["Desvio sigla"],
+            ticktext=af["Nome desvio"],
             range=[
                 quantidade_linhas - 0.5,
                 -0.5,

@@ -17,13 +17,16 @@ PRIMEIRA_HORA_HORA_WHEATON = 7
 # Coluna auxiliar de ordenação, sempre removida antes de devolver os dados.
 _COLUNA_ORDEM_WHEATON = "_ordem_dia_wheaton"
 
+# Coluna com o dia Wheaton da planilha de produção.
+COLUNA_DATA_PRODUCAO = "Data Wht (dia)"
+
 # Colunas usadas na análise de desvios; sem elas o arquivo enviado não serve.
 COLUNAS_DESVIOS = (
     "OP Vertech",
-    "Desvio sigla",
-    "Localizacao",
-    "Qtd Amostra (corrigido)",
-    "Qtd Defeito",
+    "Nome desvio",
+    "Localização",
+    "Qtd amostra (corrigido)",
+    "Qtd Desvios",
 )
 
 
@@ -35,7 +38,39 @@ def process_excel_producao(excel_file):
     desempenho_empacotamento_diario = get_desempenho_diario(df)
     desempenho_hora_hora = get_desempenho_hora_hora(df)
 
-    return desempenho_empacotamento_diario, desempenho_hora_hora
+    return (
+        desempenho_empacotamento_diario,
+        desempenho_hora_hora,
+        get_data_producao(df),
+    )
+
+
+def get_data_producao(df: pd.DataFrame) -> str:
+    """
+    Dia Wheaton da planilha, em pt-BR. Planilhas com mais de um dia devolvem o
+    intervalo ("10/08/2026 a 11/08/2026") e, sem a coluna, devolve vazio.
+    """
+    if COLUNA_DATA_PRODUCAO not in df.columns:
+        return ""
+
+    datas = (
+        pd.to_datetime(df[COLUNA_DATA_PRODUCAO], errors="coerce")
+        .dropna()
+        .dt.normalize()
+        .sort_values()
+        .unique()
+    )
+
+    if len(datas) == 0:
+        return ""
+
+    primeira = pd.Timestamp(datas[0])
+    ultima = pd.Timestamp(datas[-1])
+
+    if primeira == ultima:
+        return f"{primeira:%d/%m/%Y}"
+
+    return f"{primeira:%d/%m/%Y} a {ultima:%d/%m/%Y}"
 
 
 def process_excel_notas(excel_file) -> pd.DataFrame:
