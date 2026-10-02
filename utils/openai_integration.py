@@ -61,8 +61,10 @@ ESQUEMA_ANOTACOES_INTERPRETADAS = {
                     "observacoes": {
                         "type": "string",
                         "description": (
-                            "Resumo curto das informações do turno que não têm "
-                            "hora identificada. String vazia quando não houver."
+                            "Resumo diário geral da máquina, sempre preenchido "
+                            "e repetido igual em todas as entradas da mesma "
+                            "máquina, inclusive quando ela tiver mais de um "
+                            "prefixo. Nunca devolva string vazia."
                         ),
                     },
                 },
@@ -84,8 +86,9 @@ INSTRUCOES_ANOTACOES = (
     "identificada, com a hora em 'hora' (formato HH:MM, 24 horas) e o que aconteceu "
     "em 'descricao'.\n"
     "Regras da linha do tempo:\n"
-    "- Ordene as entradas cronologicamente, seguindo o turno (começa às 06:00 e "
-    "termina às 06:00 do dia seguinte).\n"
+    "- Ordene as entradas cronologicamente dentro do dia Wheaton, que começa às "
+    "06:00 e termina às 05:59 do dia seguinte: as horas da madrugada (00:00 a "
+    "05:59) vêm no fim do dia, depois das horas da noite.\n"
     "- Uma entrada por ocorrência: não junte dois horários diferentes na mesma "
     "entrada e não crie duas entradas para a mesma ocorrência.\n"
     "- Escreva 'descricao' em uma frase curta, objetiva e no passado, sem repetir a "
@@ -95,9 +98,13 @@ INSTRUCOES_ANOTACOES = (
     "- Quando a anotação descrever um intervalo (ex.: 'parada das 08:45 até 11:35'), "
     "use a hora de início e cite o fim ou a duração na descrição.\n"
     "- Normalize horas como '4h45', '445' ou '4:45' para '04:45'.\n"
-    "Em 'observacoes', resuma em texto corrido curto apenas o que não tem hora "
-    "identificada (condições gerais do turno, códigos de desvio recorrentes, "
-    "pendências). Use string vazia quando tudo já estiver na linha do tempo.\n"
+    "Em 'observacoes', escreva sempre o resumo diário geral da máquina em texto "
+    "corrido curto (2 a 4 frases): como foi o dia, as condições gerais dos "
+    "turnos, os códigos de desvio recorrentes, as pendências e o que não tem "
+    "hora identificada. O resumo é da máquina inteira, considerando todos os "
+    "prefixos dela: repita exatamente o mesmo texto em todas as entradas da "
+    "mesma máquina e nunca devolva string vazia — quando houver poucas "
+    "anotações, resuma o que existe.\n"
     "Use somente as informações presentes no JSON, sem inventar dados nem horários. "
     "Devolva uma entrada por máquina e prefixo presentes na entrada; quando as "
     "anotações não estiverem agrupadas por prefixo, devolva o prefixo como string vazia."

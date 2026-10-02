@@ -1,0 +1,29 @@
+# Stack do Portainer para o Relatorio Diario da Producao.
+#
+# A stack aponta para este repositorio Git. As variaveis abaixo sao preenchidas
+# pelas "Environment variables" da stack no Portainer — o .env nao vai para o
+# repositorio, entao nao existe dentro do container.
+services:
+  automacao-relatorios:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: automacao-relatorios:latest
+    container_name: automacao-relatorios
+    # Reconstroi a imagem a cada redeploy da stack, para o container subir com
+    # o codigo mais recente do repositorio.
+    pull_policy: build
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8501}:8501"
+    environment:
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:?defina AZURE_OPENAI_API_KEY nas variaveis de ambiente da stack}
+      AZURE_OPENAI_BASE_URL: ${AZURE_OPENAI_BASE_URL:-https://wheaton-openai.services.ai.azure.com/openai/v1}
+      AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT:-gpt-4.1-mini}
+      TZ: America/Sao_Paulo
+    # A VM e compartilhada: sem isso o log do container cresce sem limite.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
