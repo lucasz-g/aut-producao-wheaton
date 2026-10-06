@@ -340,6 +340,37 @@ def _blocos_grafico_desvios(
     ]
 
 
+def _blocos_grafico_zonas(
+    imagem,
+    op: str,
+    estilos: dict,
+    largura: float,
+) -> list:
+    """Cascata de perdas do processo da OP do prefixo, escalada como os demais."""
+    if not imagem:
+        return []
+
+    largura_original, altura_original = ImageReader(BytesIO(imagem)).getSize()
+    altura = largura * altura_original / largura_original
+
+    if altura > ALTURA_MAXIMA_GRAFICO:
+        largura = largura * ALTURA_MAXIMA_GRAFICO / altura
+        altura = ALTURA_MAXIMA_GRAFICO
+
+    return [
+        KeepTogether(
+            [
+                Paragraph(
+                    f"Cascata de perdas do processo — OP {_texto_seguro(op)}",
+                    estilos["rotulo"],
+                ),
+                Image(BytesIO(imagem), width=largura, height=altura, hAlign="CENTER"),
+                Spacer(1, 0.15 * cm),
+            ]
+        )
+    ]
+
+
 def _blocos_anotacao(
     anotacao,
     observacoes,
@@ -381,12 +412,14 @@ def _blocos_prefixo(
     largura: float,
     grafico: bytes | None = None,
     graficos_desvios: dict | None = None,
+    graficos_zonas: dict | None = None,
 ) -> list:
     campos = campos if isinstance(campos, dict) else {}
     anotacao = campos.get("anotacoes", anotacao_maquina)
     observacoes = campos.get("observacoes", observacoes_maquina)
     op = str(campos.get("OP") or "").strip()
     grafico_desvios = (graficos_desvios or {}).get(op)
+    grafico_zonas = (graficos_zonas or {}).get(op)
 
     cabecalho = [
         Paragraph(f"Prefixo {_texto_seguro(prefixo)}", estilos["prefixo"]),
@@ -403,6 +436,7 @@ def _blocos_prefixo(
         ),
         *_blocos_anotacao(anotacao, observacoes, estilos, largura),
         *_blocos_grafico_desvios(grafico_desvios, op, estilos, largura),
+        *_blocos_grafico_zonas(grafico_zonas, op, estilos, largura),
     ]
 
 
@@ -413,6 +447,7 @@ def _blocos_maquina(
     largura: float,
     graficos_maquina: dict | None = None,
     graficos_desvios: dict | None = None,
+    graficos_zonas: dict | None = None,
 ) -> list:
     conteudo = conteudo if isinstance(conteudo, dict) else {}
     graficos_maquina = graficos_maquina or {}
@@ -446,6 +481,7 @@ def _blocos_maquina(
                     largura,
                     graficos_maquina.get(str(prefixo)),
                     graficos_desvios,
+                    graficos_zonas,
                 )
             )
     else:
@@ -465,6 +501,7 @@ def _conteudo_estruturado(
     largura: float,
     graficos: dict | None = None,
     graficos_desvios: dict | None = None,
+    graficos_zonas: dict | None = None,
 ) -> list:
     graficos = graficos or {}
     conteudo = []
@@ -481,6 +518,7 @@ def _conteudo_estruturado(
                 largura,
                 graficos.get(str(maquina)),
                 graficos_desvios,
+                graficos_zonas,
             )
         )
 
@@ -529,6 +567,7 @@ def gerar_pdf_resumo_anotacoes(
     resumo_anotacoes: str | dict,
     graficos: dict[str, dict[str, bytes]] | None = None,
     graficos_desvios: dict[str, bytes] | None = None,
+    graficos_zonas: dict[str, bytes] | None = None,
     data_producao: str = "",
 ) -> bytes:
     """
@@ -553,7 +592,8 @@ def gerar_pdf_resumo_anotacoes(
     renderizados sem imagem.
 
     Os gráficos de desvios seguem a mesma ideia, chaveados pela OP do prefixo:
-    {"198594": bytes} — ver utils.graficos.gerar_graficos_desvios_por_op.
+    {"198594": bytes} — ver utils.graficos.gerar_graficos_desvios_por_op, e os
+    de zonas de entrada idem — ver utils.graficos.gerar_graficos_zonas_relatorio.
 
     A data de produção é o dia Wheaton da planilha e aparece no subtítulo, ao
     lado da data de geração do arquivo.
@@ -604,6 +644,7 @@ def gerar_pdf_resumo_anotacoes(
                 documento.width,
                 graficos,
                 graficos_desvios,
+                graficos_zonas,
             )
         )
     else:
