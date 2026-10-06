@@ -405,7 +405,7 @@ with aba_zonas:
             icon=":material/upload_file:",
         )
     else:
-        st.subheader("Cascata das zonas de entrada")
+        st.subheader("Cascata de perdas ao longo do processo")
         st.caption(
             f"{len(df_zonas)} registros · "
             f"{df_zonas['Ordem Producao'].nunique()} OPs no arquivo."
@@ -413,7 +413,7 @@ with aba_zonas:
 
         if not graficos_zonas:
             st.warning(
-                "Nenhuma OP do arquivo tem as etapas de entrada registradas.",
+                "Nenhuma OP do arquivo tem as etapas do processo registradas.",
                 icon=":material/warning:",
             )
         else:
@@ -421,7 +421,7 @@ with aba_zonas:
                 "Ordem de Produção",
                 options=list(graficos_zonas),
                 key="op_zonas",
-                help="Só aparecem as OPs com alguma zona de entrada medida.",
+                help="Só aparecem as OPs com alguma etapa do processo medida.",
             )
 
             st.plotly_chart(

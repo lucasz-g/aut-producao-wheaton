@@ -346,7 +346,7 @@ def _blocos_grafico_zonas(
     estilos: dict,
     largura: float,
 ) -> list:
-    """Cascata das zonas de entrada da OP do prefixo, escalada como os demais."""
+    """Cascata de perdas do processo da OP do prefixo, escalada como os demais."""
     if not imagem:
         return []
 
@@ -361,7 +361,7 @@ def _blocos_grafico_zonas(
         KeepTogether(
             [
                 Paragraph(
-                    f"Zonas de entrada — OP {_texto_seguro(op)}",
+                    f"Cascata de perdas do processo — OP {_texto_seguro(op)}",
                     estilos["rotulo"],
                 ),
                 Image(BytesIO(imagem), width=largura, height=altura, hAlign="CENTER"),

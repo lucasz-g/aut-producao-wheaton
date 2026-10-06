@@ -459,13 +459,20 @@ def _preparar_desvios_para_impressao(figura) -> go.Figure:
     return copia
 
 
-# Pontos de medição na ordem do processo. As zonas de perda ficam de fora, por
-# isso todas as etapas são 'absolute': cada barra mostra o valor da base.
-ETAPAS_ZONAS_ENTRADA = (
-    "Qtd Gotas Cortadas",
-    "Qtd Entrada Recoz.",
-    "Qtd Entrada AF",
-    "Qtd Empacotado",
+# Etapas na ordem do processo, com a medida de cada barra: os pontos de
+# medição são 'absolute' (mostram o valor da base) e as zonas de perda entre
+# eles são 'relative' (descontam do acumulado).
+ETAPAS_CASCATA_ZONAS = (
+    ("Qtd Gotas Cortadas", "absolute"),
+    ("Paradas de seção", "relative"),
+    ("Perdas seções rejeito", "relative"),
+    ("Perdas Maq-Rec", "relative"),
+    ("Qtd Entrada Recoz.", "absolute"),
+    ("Perdas Recozimento", "relative"),
+    ("Qtd Entrada AF", "absolute"),
+    ("Perdas EA", "relative"),
+    ("Perdas EM", "relative"),
+    ("Qtd Empacotado", "absolute"),
 )
 
 
@@ -473,7 +480,8 @@ def gerar_graficos_zonas_por_op(
     df_zonas: pd.DataFrame | None,
 ) -> dict[str, go.Figure]:
     """
-    Cascata das zonas de entrada de cada OP, na estrutura {"198618": figura} —
+    Cascata de perdas ao longo do processo de cada OP, na estrutura
+    {"198618": figura} —
     uma figura por Ordem de Produção com pelo menos uma etapa medida. Quem
     chama decide como exibir (st.plotly_chart na tela ou
     gerar_graficos_zonas_relatorio para o PDF).
@@ -495,9 +503,7 @@ def gerar_graficos_zonas_por_op(
     if base.empty:
         return {}
 
-    # Visão larga (uma linha por OP). 'Perdas Total AQ' e 'Perdas total AF'
-    # ficam de fora por serem subtotais das perdas individuais: se entrassem, a
-    # mesma perda apareceria duas vezes na cascata.
+    # Visão larga (uma linha por OP).
     qtd_op = base.pivot_table(
         index="Ordem Producao",
         columns="Entradas / Perdas",
@@ -506,10 +512,17 @@ def gerar_graficos_zonas_por_op(
         observed=True,
     )
 
-    etapas = [etapa for etapa in ETAPAS_ZONAS_ENTRADA if etapa in qtd_op.columns]
+    etapas_cascata = [
+        (etapa, medida)
+        for etapa, medida in ETAPAS_CASCATA_ZONAS
+        if etapa in qtd_op.columns
+    ]
 
-    if not etapas:
+    if not etapas_cascata:
         return {}
+
+    etapas = [etapa for etapa, _ in etapas_cascata]
+    medidas = [medida for _, medida in etapas_cascata]
 
     graficos: dict[str, go.Figure] = {}
 
@@ -522,11 +535,11 @@ def gerar_graficos_zonas_por_op(
         fig = go.Figure(
             go.Waterfall(
                 orientation="v",
-                measure=["absolute"] * len(etapas),
+                measure=medidas,
                 x=etapas,
                 y=valores,
                 text=[_texto_frascos(valor) for valor in valores],
-                textposition="inside",
+                textposition="outside",
                 connector={
                     "line": {"color": "#8a8a85", "dash": "dot", "width": 1}
                 },
@@ -543,7 +556,7 @@ def gerar_graficos_zonas_por_op(
 
         fig.update_layout(
             title=dict(
-                text=f"Cascata das zonas de entrada<br>OP: {op}",
+                text=f"Cascata de perdas ao longo do processo<br>OP: {op}",
                 x=0.5,
             ),
             xaxis_title="Etapa do processo",
@@ -564,7 +577,7 @@ def gerar_graficos_zonas_relatorio(
     ops: list[str],
 ) -> dict[str, bytes]:
     """
-    PNG da cascata de zonas de entrada de cada OP informada, na estrutura
+    PNG da cascata de perdas de cada OP informada, na estrutura
     {"198594": b"...png"} — a mesma chave "OP" usada no JSON do relatório, para
     o PDF só precisar consultar pela OP do prefixo.
 
