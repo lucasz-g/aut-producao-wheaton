@@ -15,12 +15,15 @@ from utils.data_processor import (
     process_excel_desvios,
     process_excel_notas,
     process_excel_producao,
+    process_excel_zonas,
     separar_data_hora,
 )
 from utils.graficos import (
     gerar_grafico_comparativo_aq_af,
     gerar_graficos_desvios_por_op,
     gerar_graficos_por_prefixo,
+    gerar_graficos_zonas_por_op,
+    gerar_graficos_zonas_relatorio,
 )
 from utils.openai_integration import get_anotacoes_interpretadas
 from utils.pdf_processor import gerar_pdf_resumo_anotacoes
@@ -40,6 +43,7 @@ CHAVES_RELATORIO = (
     "maquinas_resumidas",
     "graficos_relatorio",
     "graficos_desvios_relatorio",
+    "graficos_zonas_relatorio",
 )
 
 
@@ -92,6 +96,13 @@ def processar_desvios(arquivo):
     return df_desvios, gerar_grafico_comparativo_aq_af(df_desvios)
 
 
+def processar_zonas(arquivo):
+    """Lê o excel de zonas e já monta a cascata de entradas de cada OP."""
+    df_zonas = process_excel_zonas(arquivo)
+
+    return df_zonas, gerar_graficos_zonas_por_op(df_zonas)
+
+
 st.title("Relatório Diário da Produção")
 st.caption(
     "Anexe os arquivos na barra lateral: cada aba é liberada assim que a base "
@@ -128,12 +139,11 @@ with st.sidebar:
         accept_multiple_files=False,
     )
 
-    excel_areas = st.file_uploader(
+    excel_zonas = st.file_uploader(
         "Excel de zonas de entrada",
         type=["xlsx"],
-        key="file_uploader_areas",
+        key="file_uploader_zonas",
         accept_multiple_files=False,
-        help="Ainda não entra no relatório.",
     )
 
 # Cada arquivo é processado por conta própria: dá para consultar os desvios
@@ -151,6 +161,9 @@ df_notas = carregar_arquivo("dados_notas", excel_notas, process_excel_notas)
 
 desvios = carregar_arquivo("dados_desvios", excel_desvios, processar_desvios)
 df_desvios, graficos_aq_af = desvios if desvios is not None else (None, None)
+
+zonas = carregar_arquivo("dados_zonas", excel_zonas, processar_zonas)
+df_zonas, graficos_zonas = zonas if zonas is not None else (None, None)
 
 # As máquinas abaixo do objetivo marcam a tabela, o seletor de máquina e o
 # rodapé, por isso são calculadas antes das abas.
@@ -384,20 +397,40 @@ with aba_desvios:
         with st.expander("Dados do arquivo de desvios"):
             st.dataframe(df_desvios, width="stretch", hide_index=True)
 
-with aba_zonas: 
-
-    if excel_areas is None:
+with aba_zonas:
+    if df_zonas is None:
         st.info(
-            "Envie o excel de zonas de entrada na barra lateral.",
+            "Envie o excel de zonas de entrada na barra lateral para ver a "
+            "cascata do processo.",
             icon=":material/upload_file:",
         )
     else:
-        # TODO: processar os dados quando as zonas de entrada entrarem no
-        # relatório.
-        st.info(
-            "Análise de zonas de entrada em construção.",
-            icon=":material/construction:",
+        st.subheader("Cascata das zonas de entrada")
+        st.caption(
+            f"{len(df_zonas)} registros · "
+            f"{df_zonas['Ordem Producao'].nunique()} OPs no arquivo."
         )
+
+        if not graficos_zonas:
+            st.warning(
+                "Nenhuma OP do arquivo tem as etapas de entrada registradas.",
+                icon=":material/warning:",
+            )
+        else:
+            op_zona_selecionada = st.selectbox(
+                "Ordem de Produção",
+                options=list(graficos_zonas),
+                key="op_zonas",
+                help="Só aparecem as OPs com alguma zona de entrada medida.",
+            )
+
+            st.plotly_chart(
+                graficos_zonas[op_zona_selecionada],
+                width="stretch",
+            )
+
+        with st.expander("Dados do arquivo de zonas de entrada"):
+            st.dataframe(df_zonas, width="stretch", hide_index=True)
 
 # O rodapé fica fora das abas para ficar acessível em todas elas. O botão
 # aparece desde o início, mas só fica clicável quando os três arquivos
@@ -489,9 +522,14 @@ if pronto_para_relatorio:
                         desempenho_hora_hora,
                         maquinas_abaixo_objetivo,
                     )
+                    ops_relatorio = ops_do_relatorio(json_interpretado)
                     graficos_desvios_relatorio = gerar_graficos_desvios_por_op(
                         graficos_aq_af,
-                        ops_do_relatorio(json_interpretado),
+                        ops_relatorio,
+                    )
+                    graficos_zonas_relatorio = gerar_graficos_zonas_relatorio(
+                        graficos_zonas,
+                        ops_relatorio,
                     )
             except Exception as erro:
                 st.error(f"Não foi possível gerar o relatório: {erro}")
@@ -508,6 +546,9 @@ if pronto_para_relatorio:
                 st.session_state["graficos_desvios_relatorio"] = (
                     graficos_desvios_relatorio
                 )
+                st.session_state["graficos_zonas_relatorio"] = (
+                    graficos_zonas_relatorio
+                )
 
     resumo_ia = st.session_state.get("resumo_anotacoes")
     json_interpretado = st.session_state.get("json_interpretado")
@@ -520,6 +561,7 @@ if pronto_para_relatorio:
             json_interpretado,
             st.session_state.get("graficos_relatorio"),
             st.session_state.get("graficos_desvios_relatorio"),
+            st.session_state.get("graficos_zonas_relatorio"),
             data_producao,
         )
         espaco_download.download_button(

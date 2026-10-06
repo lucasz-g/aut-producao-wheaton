@@ -8,6 +8,7 @@ from utils.data_processor import gerar_grafico_desempenho_hora_hora
 LARGURA_PNG = 1000
 ALTURA_PNG = 420
 ALTURA_PNG_DESVIOS = 520
+ALTURA_PNG_ZONAS = 460
 ESCALA_PNG = 2
 
 
@@ -456,3 +457,142 @@ def _preparar_desvios_para_impressao(figura) -> go.Figure:
     )
 
     return copia
+
+
+# Pontos de medição na ordem do processo. As zonas de perda ficam de fora, por
+# isso todas as etapas são 'absolute': cada barra mostra o valor da base.
+ETAPAS_ZONAS_ENTRADA = (
+    "Qtd Gotas Cortadas",
+    "Qtd Entrada Recoz.",
+    "Qtd Entrada AF",
+    "Qtd Empacotado",
+)
+
+
+def gerar_graficos_zonas_por_op(
+    df_zonas: pd.DataFrame | None,
+) -> dict[str, go.Figure]:
+    """
+    Cascata das zonas de entrada de cada OP, na estrutura {"198618": figura} —
+    uma figura por Ordem de Produção com pelo menos uma etapa medida. Quem
+    chama decide como exibir (st.plotly_chart na tela ou
+    gerar_graficos_zonas_relatorio para o PDF).
+
+    Os valores são plotados exatamente como vieram da base, sem tratamento.
+    """
+    if df_zonas is None or df_zonas.empty:
+        return {}
+
+    base = df_zonas.copy()
+
+    for coluna in ["Ordem Producao", "Entradas / Perdas"]:
+        base[coluna] = base[coluna].astype("string").str.strip()
+
+    base["Qtd Frascos"] = pd.to_numeric(base["Qtd Frascos"], errors="coerce")
+
+    base = base.dropna(subset=["Ordem Producao", "Entradas / Perdas"])
+
+    if base.empty:
+        return {}
+
+    # Visão larga (uma linha por OP). 'Perdas Total AQ' e 'Perdas total AF'
+    # ficam de fora por serem subtotais das perdas individuais: se entrassem, a
+    # mesma perda apareceria duas vezes na cascata.
+    qtd_op = base.pivot_table(
+        index="Ordem Producao",
+        columns="Entradas / Perdas",
+        values="Qtd Frascos",
+        aggfunc="sum",
+        observed=True,
+    )
+
+    etapas = [etapa for etapa in ETAPAS_ZONAS_ENTRADA if etapa in qtd_op.columns]
+
+    if not etapas:
+        return {}
+
+    graficos: dict[str, go.Figure] = {}
+
+    for op in qtd_op.index:
+        valores = [qtd_op.loc[op, etapa] for etapa in etapas]
+
+        if all(pd.isna(valor) for valor in valores):
+            continue
+
+        fig = go.Figure(
+            go.Waterfall(
+                orientation="v",
+                measure=["absolute"] * len(etapas),
+                x=etapas,
+                y=valores,
+                text=[_texto_frascos(valor) for valor in valores],
+                textposition="inside",
+                connector={
+                    "line": {"color": "#8a8a85", "dash": "dot", "width": 1}
+                },
+                decreasing={"marker": {"color": "#e34948"}},
+                increasing={"marker": {"color": "#2a78d6"}},
+                totals={"marker": {"color": "#2a78d6"}},
+                hovertemplate=(
+                    "<b>Etapa:</b> %{x}<br>"
+                    "<b>Qtd Frascos:</b> %{y:,.0f}"
+                    "<extra></extra>"
+                ),
+            )
+        )
+
+        fig.update_layout(
+            title=dict(
+                text=f"Cascata das zonas de entrada<br>OP: {op}",
+                x=0.5,
+            ),
+            xaxis_title="Etapa do processo",
+            yaxis_title="Qtd Frascos",
+            template="plotly_white",
+            showlegend=False,
+            height=460,
+            margin=dict(l=70, r=40, t=100, b=60),
+        )
+
+        graficos[str(op)] = fig
+
+    return graficos
+
+
+def gerar_graficos_zonas_relatorio(
+    graficos_zonas: dict[str, go.Figure] | None,
+    ops: list[str],
+) -> dict[str, bytes]:
+    """
+    PNG da cascata de zonas de entrada de cada OP informada, na estrutura
+    {"198594": b"...png"} — a mesma chave "OP" usada no JSON do relatório, para
+    o PDF só precisar consultar pela OP do prefixo.
+
+    OPs sem gráfico (ou cuja exportação falhar) são apenas omitidas: o
+    relatório continua sendo gerado sem a imagem.
+    """
+    if not graficos_zonas:
+        return {}
+
+    imagens: dict[str, bytes] = {}
+
+    for op in dict.fromkeys(str(op).strip() for op in ops if op is not None):
+        figura = graficos_zonas.get(op)
+
+        if figura is None:
+            continue
+
+        try:
+            imagens[op] = exportar_figura_png(figura, altura=ALTURA_PNG_ZONAS)
+        except Exception:
+            continue
+
+    return imagens
+
+
+def _texto_frascos(valor) -> str:
+    """Rótulo da barra no formato brasileiro (1.234.567); vazio quando não medido."""
+    if pd.isna(valor):
+        return ""
+
+    return f"{valor:,.0f}".replace(",", ".")

@@ -29,6 +29,13 @@ COLUNAS_DESVIOS = (
     "Qtd Desvios",
 )
 
+# Colunas usadas na análise de zonas de entrada; sem elas o arquivo não serve.
+COLUNAS_ZONAS = (
+    "Ordem Producao",
+    "Entradas / Perdas",
+    "Qtd Frascos",
+)
+
 
 def process_excel_producao(excel_file):
     df = pd.read_excel(excel_file)
@@ -101,6 +108,23 @@ def process_excel_desvios(excel_file) -> pd.DataFrame:
         )
 
     return df_desvios
+
+
+def process_excel_zonas(excel_file) -> pd.DataFrame:
+    """Zonas e perdas (sensor): o cabeçalho começa na terceira linha da planilha."""
+    df_zonas = pd.read_excel(excel_file, header=2)
+
+    colunas_faltando = [
+        coluna for coluna in COLUNAS_ZONAS if coluna not in df_zonas.columns
+    ]
+
+    if colunas_faltando:
+        raise ValueError(
+            "Colunas não encontradas no excel de zonas de entrada: "
+            + ", ".join(colunas_faltando)
+        )
+
+    return df_zonas
 
 
 def get_maquinas_abaixo_objetivo(desempenho: pd.DataFrame) -> list[str]:
